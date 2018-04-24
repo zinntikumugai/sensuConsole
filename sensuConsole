@@ -1,0 +1,97 @@
+#!/bin/bash
+. ./sensuConfig
+
+function parse_json() {
+    echo $1 | \
+    sed -e 's/[{}]/''/g' | \
+    sed -e 's/", "/'\",\"'/g' | \
+    sed -e 's/" ,"/'\",\"'/g' | \
+    sed -e 's/" , "/'\",\"'/g' | \
+    sed -e 's/","/'\"---SEPERATOR---\"'/g' | \
+    awk -F=':' -v RS='---SEPERATOR---' "\$1~/\"$2\"/ {print}" | \
+    sed -e "s/\"$2\"://" | \
+    tr -d "\n\t" | \
+    sed -e 's/\\"/"/g' | \
+    sed -e 's/\\\\/\\/g' | \
+    sed -e 's/^[ \t]*//g' | \
+    sed -e 's/^"//'  -e 's/"$//'
+}
+
+function APIUpdate() {
+    echo "Ples Put APIKEY"
+    read -p ":" api
+    `sed -i s/APIKEY=.*/APIKEY=$api/ sensuConfig`
+    echo "Done."
+    exit
+}
+
+function setup() {
+    echo "Setup Mode"
+    echo "Plese Enter Menu."
+    echo ""
+    echo "1. Set API Key"
+
+    read -p ":" sc
+    case "$sc" in
+        "1")
+            APIUpdate
+            ;;
+        *)
+            echo "opps.. no menu."
+            exit
+            ;;
+    esac
+}
+
+urlencode() {
+    # urlencode <string>
+    old_lc_collate=$LC_COLLATE
+    LC_COLLATE=C
+    
+    local length="${#1}"
+    for (( i = 0; i < length; i++ )); do
+        local c="${1:i:1}"
+        case $c in
+            [a-zA-Z0-9.~_-]) printf "$c" ;;
+            *) printf '%%%02X' "'$c" ;;
+        esac
+    done
+    
+    LC_COLLATE=$old_lc_collate
+}
+
+urldecode() {
+    # urldecode <string>
+
+    local url_encoded="${*//+/ }"
+    printf '%b' "${url_encoded//%/\\x}"
+}
+
+slashremove() {
+    local url="$*"
+    local data=`echo "$url" | sed -e 's/\\\\//g'`
+    echo "$data"
+}
+
+function command() {
+    COMMAND=`urlencode "${COMMAND}"`
+    COMMAND="$(IFS=/; echo "$*")"
+    JSON=$(curl -sS -XPOST "https://sensu.tips/api/platform/${COMMAND}" --data-urlencode "api_key=${APIKEY}" --data-urlencode "social_account=${ACCOUNT}")
+    status=`parse_json "$JSON" status`
+    echo "$status"
+    data=`parse_json "$JSON" message`
+    data=`urldecode "$data"`
+    echo `slashremove "$data"`
+    # message=`parse_json "$JSON" message`
+    # echo "$message"
+    exit
+}
+
+case $1 in
+    "setup")
+        setup
+        ;;
+    *)
+        command $*
+        ;;
+esac
